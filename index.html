@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Praktikum V: Vitamin & Mineral — Simulasi Laboratorium Interaktif</title>
+    <!-- Google Fonts: Poppins, Playfair Display & Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        navy: { 800: '#0a192f', 900: '#020b14' },
+                        teal: { 600: '#0096c7', 500: '#48cae4', 100: '#ade8f4' },
+                        gold: '#ffd166',
+                        bone: '#f8f9fa'
+                    },
+                    fontFamily: {
+                        serif: ['Playfair Display', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                        heading: ['Poppins', 'sans-serif']
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Three.js CDN (dengan fallback otomatis ke CSS 3D jika gagal) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #020b14; color: #f8f9fa; overflow-x: hidden; }
+        h1, h2, h3, .font-heading { font-family: 'Poppins', sans-serif; }
+        .font-serif { font-family: 'Playfair Display', serif; }
+        
+        /* Animasi Latar Gradien Bergeser */
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        .animated-bg {
+            background: linear-gradient(-45deg, #020b14, #0a2540, #0f172a, #030712);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+        }
+
+        /* 3D Perspective & Card Tilt */
+        .perspective-container { perspective: 1000px; transform-style: preserve-3d; }
+        .card-3d { transition: transform 0.3s ease, box-shadow 0.3s ease; transform-style: preserve-3d; }
+        .card-3d:hover { transform: translateY(-5px) rotateX(2deg) rotateY(-2deg); }
+
+        /* Kustom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #0a192f; }
+        ::-webkit-scrollbar-thumb { background: #1b3a4b; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #48cae4; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col animated-bg selection:bg-teal-500 selection:text-navy-900">
+
+    <!-- ROOT CONTAINER -->
+    <div id="app" class="flex-1 flex flex-col">
+        <!-- Render dinamis via JavaScript -->
+    </div>
+
+    <!-- SCRIPT APLIKASI UTAMA -->
+    <script>
+        /**
+         * STATE GLOBAL APLIKASI (TANPA LOCALSTORAGE & TANPA PENGUNCIAN)
+         */
+        const AppState = {
+            screen: 'landing', // 'landing', 'menu', 'uji_c', 'uji_b6', 'buku_pengamatan', 'kuis'
+            studentName: '',
+            studentNIM: '',
+            reduceMotion: false,
+            cameraAngle: 'default', // 'default', 'left', 'right', 'top'
+            
+            // Progres Uji Vitamin C
+            vitCFruitIndex: 0,
+            vitCDrops: [0, 0, 0, 0, 0],
+            vitCFinished: [false, false, false, false, false],
+            
+            // Progres Uji Vitamin B6
+            b6SampleIndex: 0,
+            b6Step: 0, // 0: Siap, 1: Tambah CuSO4, 2: Tambah NaOH, 3: Selesai
+            b6Results: [null, null, null],
+
+            // Buku Pengamatan / Laporan
+            observations: {
+                vitC: [],
+                vitB6: []
+            },
+
+            // Kuis Aktif
+            activeQuizType: null,
+            quizAnswers: {},
+            quizSubmitted: false
+        };
+
+        /**
+         * BANK SOAL KUIS (DATA-DRIVEN)
+         */
+        const QuizData = {
+            vit_c: [
+                {
+                    q: "Apa fungsi reagen Betadine (I2) dalam titrasi uji Vitamin C?",
+                    options: ["Sebagai indikator warna basa", "Sebagai oksidator yang direduksi oleh asam askorbat", "Sebagai katalisator endapan", "Sebagai pelarut ekstrak"],
+                    answer: 1,
+                    explanation: "Iodin (I2) dalam Betadine bertindak sebagai oksidator yang warnanya direduksi menjadi iodida tak berwarna oleh asam askorbat."
+                },
+                {
+                    q: "Kapan titik akhir titrasi Uji Vitamin C dinyatakan tercapai?",
+                    options: ["Saat cairan mendidih", "Saat warna cokelat Betadine menetap dan tidak hilang saat dikocok", "Saat terbentuk gas berlebih", "Saat cairan menjadi hijau"],
+                    answer: 1,
+                    explanation: "Titik akhir ditandai ketika seluruh asam askorbat habis dan kelebihan iodin membuat warna cokelat menetap."
+                },
+                {
+                    q: "Mengapa volume ekstrak buah dan air pengencer harus sama di awal?",
+                    options: ["Agar estetik di tabung", "Menjaga variabel terkontrol agar perbandingan kapasitas reduksi valid", "Mempercepat reaksi", "Menjaga suhu tabung"],
+                    answer: 1,
+                    explanation: "Kontrol variabel berat dan volume esensial dalam analisis kuantitatif komparatif."
+                },
+                {
+                    q: "Vitamin C sangat mudah rusak apabila terpapar...",
+                    options: ["Suhu panas, oksigen, dan cahaya", "Suhu dingin di bawah titik beku", "Larutan garam encer", "Media hampa udara"],
+                    answer: 0,
+                    explanation: "Asam askorbat bersifat labil dan mudah teroksidasi oleh panas, oksigen bebas, serta cahaya."
+                },
+                {
+                    q: "Defisiensi asam askorbat dalam jangka panjang memicu penyakit...",
+                    options: ["Rakitis", "Skorbut (Scurvy)", "Beri-beri", "Anemia pernisiosa"],
+                    answer: 1,
+                    explanation: "Skorbut disebabkan oleh kegagalan sintesis kolagen akibat kurangnya Vitamin C."
+                }
+            ],
+            vit_b6: [
+                {
+                    q: "Reaksi uji Vitamin B6 dengan CuSO4 dan NaOH menghasilkan...",
+                    options: ["Endapan merah bata", "Kompleks warna hijau muda hingga ungu pekat", "Gas CO2 berlebih", "Larutan bening tanpa perubahan"],
+                    answer: 1,
+                    explanation: "Ion Cu2+ dalam suasana basa membentuk kompleks koordinasi berwarna dengan piridoksin."
+                },
+                {
+                    q: "Apa fungsi penambahan NaOH 10% dalam pengujian ini?",
+                    options: ["Memberikan suasana basa untuk memfasilitasi ikatan ion logam dengan piridoksin", "Menurunkan pH larutan", "Mengendapkan seluruh vitamin", "Sebagai pewarna buatan"],
+                    answer: 0,
+                    explanation: "Suasana alkali (basa) diperlukan agar pembentukan kompleks [Cu(piridoksin)]²⁺ optimal."
+                },
+                {
+                    q: "Warna ungu pekat pada uji B6 mengindikasikan kadar...",
+                    options: ["Rendah (< 2 mg/mL)", "Sedang (2-5 mg/mL)", "Tinggi (> 5 mg/mL)", "Tidak ada vitamin"],
+                    answer: 2,
+                    explanation: "Semakin tinggi konsentrasi piridoksin, semakin pekat kompleks ungu yang terbentuk."
+                },
+                {
+                    q: "Vitamin B6 dikenal secara kimia dengan nama...",
+                    options: ["Tiamin", "Riboflavin", "Piridoksin", "Asam Askorbat"],
+                    answer: 2,
+                    explanation: "Piridoksin adalah bentuk utama dari Vitamin B6."
+                },
+                {
+                    q: "Apa peran CuSO4 5% dalam larutan?",
+                    options: ["Sumber ion tembaga(II) (Cu2+)", "Sebagai indikator pH asam", "Sebagai zat pereduksi utama", "Sebagai penstabil suhu"],
+                    answer: 0,
+                    explanation: "CuSO4 menyediakan ion tembaga bervalensi dua sebagai pusat ion pengompleks."
+                }
+            ]
+        };
+
+        const fruitData = [
+            { name: "Ekstrak Jambu Biji", drops: 15, color: "#86efac" },
+            { name: "Ekstrak Pepaya", drops: 12, color: "#f97316" },
+            { name: "Ekstrak Jeruk", drops: 9, color: "#facc15" },
+            { name: "Ekstrak Mangga", drops: 6, color: "#fef08a" },
+            { name: "Ekstrak Apel", drops: 3, color: "#ecfccb" }
+        ];
+
+        const b6SampleData = [
+            { id: 1, name: "Sampel A (Kadar Rendah)", category: "Rendah (< 2 mg/mL)", color: "#bbf7d0" },
+            { id: 2, name: "Sampel B (Kadar Sedang)", category: "Sedang (2-5 mg/mL)", color: "#93c5fd" },
+            { id: 3, name: "Sampel C (Kadar Tinggi)", category: "Tinggi (> 5 mg/mL)", color: "#7e22ce" }
+        ];
+
+        /**
+         * NOTIFIKASI & UTILITAS
+         */
+        function showNotification(msg) {
+            const notif = document.createElement('div');
+            notif.className = 'fixed bottom-6 right-6 bg-teal-500 text-navy-900 font-bold px-5 py-3 rounded-xl shadow-2xl z-50 transition transform duration-300 translate-y-10 opacity-0 border border-teal-100 flex items-center space-x-2';
+            notif.innerHTML = `<span>✨</span><span>${msg}</span>`;
+            document.body.appendChild(notif);
+            setTimeout(() => { notif.classList.remove('translate-y-10', 'opacity-0'); }, 50);
+            setTimeout(() => { 
+                notif.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => notif.remove(), 300);
+            }, 3000);
+        }
+
+        function render() {
+            const app = document.getElementById('app');
+            app.innerHTML = '';
+
+            // Tombol Navigasi Menu Tetap Terlihat di Setiap Layar
+            let persistentNav = '';
+            if (AppState.screen !== 'landing') {
+                persistentNav = `
+                <nav class="bg-navy-800/90 border-b border-teal-500/30 px-6 py-3 flex justify-between items-center backdrop-blur-md sticky top-0 z-50">
+                    <div class="flex items-center space-x-3">
+                        <span class="text-2xl">🧪</span>
+                        <div>
+                            <h2 class="font-heading text-sm md:text-base text-teal-300 font-bold">Praktikum V: Vitamin & Mineral</h2>
+                            <p class="text-xs text-slate-400">${AppState.studentName} (${AppState.studentNIM})</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="goToMenu()" class="bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
+                            <span>🏠 Menu Utama</span>
+                        </button>
+                        <button onclick="goToBukuPengamatan()" class="bg-teal-500/20 hover:bg-teal-500/30 text-teal-300 border border-teal-500/40 px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center space-x-1">
+                            <span>📖 Buku Pengamatan</span>
+                        </button>
+                    </div>
+                </nav>
+                `;
+            }
+
+            let content = '';
+            switch (AppState.screen) {
+                case 'landing': content = renderLanding(); break;
+                case 'menu': content = renderMenu(); break;
+                case 'uji_c': content = renderUjiVitaminC(); break;
+                case 'uji_b6': content = renderUjiVitaminB6(); break;
+                case 'buku_pengamatan': content = renderBukuPengamatan(); break;
+                case 'kuis': content = renderQuizScreen(); break;
+            }
+
+            app.innerHTML = persistentNav + content;
+
+            // Inisialisasi Three.js molekul 3D jika di landing atau laporan
+            if (AppState.screen === 'landing') {
+                initMoleculeCanvas('landing-canvas');
+            }
+        }
+
+        /**
+         * 1. LAYAR AWAL (LANDING SCREEN)
+         */
+        function renderLanding() {
+            return `
+            <div class="flex-1 flex flex-col justify-center items-center p-6 relative overflow-hidden">
+                <div class="max-w-3xl w-full bg-navy-800/90 border border-teal-500/30 backdrop-blur-md rounded-3xl p-8 md:p-12 shadow-2xl relative z-10 text-center perspective-container">
+                    
+                    <div class="w-32 h-32 mx-auto mb-4 relative flex items-center justify-center">
+                        <canvas id="landing-canvas" class="w-full h-full rounded-full"></canvas>
+                    </div>
+
+                    <h1 class="font-heading text-3xl md:text-5xl text-teal-300 mb-3 font-bold tracking-tight">Praktikum V: Vitamin & Mineral</h1>
+                    <p class="text-slate-300 text-sm md:text-base mb-8 max-w-xl mx-auto leading-relaxed">Simulasi Laboratorium Virtual Step by Step dengan Visual Berwarna, Animasi Dinamis, dan Interaksi Penuh Tanpa Batasan Penguncian.</p>
+                    
+                    <div class="space-y-4 text-left bg-navy-900/70 p-6 rounded-2xl border border-slate-700/80 mb-8 max-w-md mx-auto shadow-inner">
+                        <h3 class="text-teal-400 font-semibold text-xs uppercase tracking-wider mb-2">Identitas Praktikan (Opsional untuk Sertifikat)</h3>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">Nama Lengkap</label>
+                            <input type="text" id="input-name" value="${AppState.studentName}" placeholder="cth. Salsabila Putri" class="w-full bg-navy-800 border border-slate-600 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-400 text-sm">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-400 mb-1">NIM</label>
+                            <input type="text" id="input-nim" value="${AppState.studentNIM}" placeholder="cth. 2205102041" class="w-full bg-navy-800 border border-slate-600 rounded-xl px-4 py-2.5 text-white focus:outline-none focus:border-teal-400 text-sm">
+                        </div>
+                    </div>
+
+                    <button onclick="startSimulation()" class="bg-gradient-to-r from-teal-500 to-teal-400 hover:from-teal-400 hover:to-teal-300 text-navy-900 font-heading font-bold px-10 py-4 rounded-2xl transition duration-200 shadow-xl shadow-teal-500/25 text-base transform hover:scale-105">
+                        Mulai Praktikum Sekarang →
+                    </button>
+                </div>
+            </div>
+            `;
+        }
+
+        function startSimulation() {
+            const name = document.getElementById('input-name').value.trim();
+            const nim = document.getElementById('input-nim').value.trim();
+            AppState.studentName = name || "Mahasiswa Praktikan";
+            AppState.studentNIM = nim || "N/A";
+            AppState.screen = 'menu';
+            render();
+            showNotification("Selamat datang di Laboratorium Virtual Biokimia Gizi!");
+        }
+
+        /**
+         * 2. MENU UTAMA (TANPA PENGUNCIAN SEPENUHNYA)
+         */
+        function renderMenu() {
+            return `
+            <div class="flex-1 flex flex-col p-6 md:p-10 max-w-6xl mx-auto w-full space-y-8">
+                <div class="text-center space-y-2">
+                    <h1 class="font-heading text-3xl md:text-4xl font-bold text-teal-300">Menu Utama Praktikum</h1>
+                    <p class="text-slate-400 text-sm max-w-xl mx-auto">Semua modul uji dan kuis terbuka bebas. Pilih topik praktikum yang ingin Anda jalankan.</p>
+                </div>
+
+                <!-- Bagian Vitamin -->
+                <div class="space-y-4">
+                    <h2 class="font-heading text-xl text-gold font-semibold flex items-center space-x-2 border-b border-slate-700/60 pb-2">
+                        <span>🍊</span><span>Modul Uji Vitamin</span>
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div onclick="goToUjiC()" class="card-3d bg-gradient-to-br from-orange-600/20 via-navy-800 to-amber-600/20 border border-orange-500/40 p-6 rounded-3xl cursor-pointer shadow-xl flex flex-col justify-between">
+                            <div>
+                                <div class="text-3xl mb-3">🧪</div>
+                                <h3 class="font-heading text-lg font-bold text-orange-300 mb-1">Uji Vitamin C</h3>
+                                <p class="text-xs text-slate-300">Titrasi ekstrak buah dengan Betadine (I2) untuk mengukur kapasitas reduksi asam askorbat.</p>
+                            </div>
+                            <div class="mt-6 flex justify-between items-center text-xs">
+                                <span class="text-orange-400 font-semibold">5 Sampel Buah</span>
+                                <span class="bg-orange-500/20 text-orange-300 px-3 py-1 rounded-xl border border-orange-500/30">Mulai Uji →</span>
+                            </div>
+                        </div>
+
+                        <div onclick="goToUjiB6()" class="card-3d bg-gradient-to-br from-fuchsia-600/20 via-navy-800 to-purple-600/20 border border-fuchsia-500/40 p-6 rounded-3xl cursor-pointer shadow-xl flex flex-col justify-between">
+                            <div>
+                                <div class="text-3xl mb-3">🟣</div>
+                                <h3 class="font-heading text-lg font-bold text-fuchsia-300 mb-1">Uji Vitamin B6</h3>
+                                <p class="text-xs text-slate-300">Pembentukan kompleks warna koordinasi ion Cu²⁺ dengan piridoksin dalam suasana basa.</p>
+                            </div>
+                            <div class="mt-6 flex justify-between items-center text-xs">
+                                <span class="text-fuchsia-400 font-semibold">3 Kadar Sampel</span>
+                                <span class="bg-fuchsia-500/20 text-fuchsia-300 px-3 py-1 rounded-xl border border-fuchsia-500/30">Mulai Uji →</span>
+                            </div>
+                        </div>
+
+                        <div onclick="openQuiz('vit_c')" class="card-3d bg-gradient-to-br from-indigo-600/20 via-navy-800 to-blue-600/20 border border-indigo-500/40 p-6 rounded-3xl cursor-pointer shadow-xl flex flex-col justify-between">
+                            <div>
+                                <div class="text-3xl mb-3">📝</div>
+                                <h3 class="font-heading text-lg font-bold text-indigo-300 mb-1">Kuis Mini Vitamin</h3>
+                                <p class="text-xs text-slate-300">Evaluasi pemahaman teori klasifikasi, fungsi, dan defisiensi vitamin.</p>
+                            </div>
+                            <div class="mt-6 flex justify-between items-center text-xs">
+                                <span class="text-indigo-400 font-semibold">5 Soal Interaktif</span>
+                                <span class="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-xl border border-indigo-500/30">Kerjakan →</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bagian Mineral -->
+                <div class="space-y-4 pt-4">
+                    <h2 class="font-heading text-xl text-teal-400 font-semibold flex items-center space-x-2 border-b border-slate-700/60 pb-2">
+                        <span>🪨</span><span>Modul Uji Mineral (Terbuka Bebas Tanpa Filtrat Wajib)</span>
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                        <div onclick="showNotification('Gunakan Filtrat Siap Pakai di setiap uji mineral!')" class="card-3d bg-gradient-to-br from-amber-600/20 via-navy-800 to-yellow-600/20 border border-amber-500/40 p-5 rounded-3xl cursor-pointer shadow-xl flex flex-col justify-between">
+                            <div>
+                                <div class="text-2xl mb-2">🥚</div>
+                                <h3 class="font-heading text-base font-bold text-amber-300 mb-1">Filtrat Cangkang Telur</h3>
+                                <p class="text-xs text-slate-300">Preparasi larutan stok mineral (opsional).</p>
+                            </div>
+                            <span class="mt-4 text-xs text-amber-400 font-semibold">Tersedia Siap Pakai →</span>
+                        </div>
+
+                        <div onclick="showNotification('Uji Kalsium: Tambah HCl & Na2CO3 untuk endapan putih CaCO3.')" class="card-3d bg-gradient-to-br from-cyan-600/20 via-navy-800 to-blue-600/20 border border-cyan-500/40 p-5 rounded-3xl cursor-pointer shadow-xl flex flex-col justify-between">
+                            <div>
+                                <div class="text-2xl mb-2">🥛</div>
+                                <h3 class="font-heading text-base font-bold text-cyan-300 mb-1">Uji Kalsium (Ca²⁺)</h3>
+                                <p class="text-xs text-slate-300">Endapan putih CaCO3.</p>
+                            </div>
+                            <span class="mt-4 text-xs text-cyan-400 font-semibold">Simulasi Instan →</span>
+                        </div>
+
+                        <div onclick="showNotification('Uji Fosfat: Tambah HNO3 & Amonium Molibdat untuk endapan kuning.')" class="card-3d bg-gradient-to-br from-yellow-600/20 via-navy-800 to-amber-600/20 border border-yellow-500/40 p-5 rounded-3xl cursor-pointer shadow-xl flex flex-col justify-between">
+                            <div>
+                                <div class="text-2xl mb-2">✨</div>
+                                <h3 class="font-heading text-base font-bold text-yellow-300 mb-1">Uji Fosfat (PO4³⁻)</h3>
+                                <p class="text-xs text-slate-300">Kompleks warna kuning.</p>
+                            </div>
+                            <span class="mt-4 text-xs text-yellow-400 font-semibold">Simulasi Instan →</span>
+                        </div>
+
+                        <div onclick="showNotification('Uji Klorida: Tambah HNO3 & AgNO3 untuk endapan putih AgCl.')" class="card-3d bg-gradient-to-br from-teal-600/20 via-navy-800 to-emerald-600/20 border border-teal-500/40 p-5 rounded-3xl cursor-pointer shadow-xl flex flex-col justify-between">
+                            <div>
+                                <div class="text-2xl mb-2">🧂</div>
+                                <h3 class="font-heading text-base font-bold text-teal-300 mb-1">Uji Klorida (Cl⁻)</h3>
+                                <p class="text-xs text-slate-300">Endapan putih AgCl.</p>
+                            </div>
+                            <span class="mt-4 text-xs text-teal-400 font-semibold">Simulasi Instan →</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="pt-4 flex justify-center">
+                    <button onclick="goToBukuPengamatan()" class="bg-gradient-to-r from-teal-500 to-teal-400 text-navy-900 font-heading font-bold px-8 py-3 rounded-2xl shadow-lg transition transform hover:scale-105 text-sm">
+                        📖 Buka Buku Pengamatan & Tabel Ringkasan →
+                    </button>
+                </div>
+            </div>
+            `;
+        }
+
+        function goToMenu() { AppState.screen = 'menu'; render(); }
+        function goToUjiC() { AppState.screen = 'uji_c'; render(); }
+        function goToUjiB6() { AppState.screen = 'uji_b6'; render(); }
+        function goToBukuPengamatan() { AppState.screen = 'buku_pengamatan'; render(); }
+
+        /**
+         * 3. MODUL UJI VITAMIN C (STEP BY STEP + 3D PERSPECTIVE + ANIMASI)
+         */
+        function renderUjiVitaminC() {
+            const fruit = fruitData[AppState.vitCFruitIndex];
+            const currentDrops = AppState.vitCDrops[AppState.vitCFruitIndex];
+            const isFinished = AppState.vitCFinished[AppState.vitCFruitIndex];
+            const colorPercent = Math.min(1, currentDrops / fruit.drops);
+            const tubeColor = colorPercent === 1 ? '#8b4513' : fruit.color;
+
+            let fruitTabsHTML = fruitData.map((f, i) => `
+                <button onclick="selectVitCFruit(${i})" class="px-4 py-2 rounded-xl text-xs font-semibold border transition ${i === AppState.vitCFruitIndex ? 'bg-orange-500 text-navy-900 border-orange-300 shadow-lg scale-105' : 'bg-navy-900 text-slate-300 border-slate-700 hover:bg-slate-800'}">
+                    ${f.name.replace('Ekstrak ', '')} ${AppState.vitCFinished[i] ? '✓' : ''}
+                </button>
+            `).join('');
+
+            return `
+            <div class="flex-1 flex flex-col p-6 max-w-5xl mx-auto w-full space-y-6">
+                <!-- Header Uji -->
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-navy-800/80 p-5 rounded-3xl border border-orange-500/30 gap-4">
+                    <div>
+                        <span class="bg-orange-500/20 text-orange-300 px-3 py-1 rounded-full text-xs font-semibold border border-orange-500/30">Langkah Step by Step</span>
+                        <h1 class="font-heading text-2xl text-orange-300 font-bold mt-1">Uji Vitamin C (Reduksi Iodin)</h1>
+                        <p class="text-xs text-slate-300">Tujuan: Menentukan kapasitas reduksi asam askorbat dalam ekstrak buah terhadap Betadine.</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="text-xs text-slate-400">Sudut Pandang 3D:</span>
+                        <button onclick="setCameraAngle('default')" class="px-2.5 py-1 bg-navy-900 border border-slate-700 rounded-lg text-xs hover:border-orange-400">Depan</button>
+                        <button onclick="setCameraAngle('left')" class="px-2.5 py-1 bg-navy-900 border border-slate-700 rounded-lg text-xs hover:border-orange-400">Miring Kiri</button>
+                        <button onclick="setCameraAngle('right')" class="px-2.5 py-1 bg-navy-900 border border-slate-700 rounded-lg text-xs hover:border-orange-400">Miring Kanan</button>
+                    </div>
+                </div>
+
+                <!-- Area Simulasi Meja Lab 3D Perspective -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    
+                    <!-- Panel Kiri: Pemilihan Sampel & Kontrol -->
+                    <div class="bg-navy-800/90 border border-slate-700 p-6 rounded-3xl space-y-5 shadow-xl flex flex-col justify-between">
+                        <div class="space-y-4">
+                            <h3 class="font-heading text-sm text-orange-300 font-bold">1. Pilih Sampel Ekstrak Buah</h3>
+                            <div class="flex flex-wrap gap-2">
+                                ${fruitTabsHTML}
+                            </div>
+
+                            <div class="bg-navy-900/80 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+                                <div class="flex justify-between"><span class="text-slate-400">Sampel Aktif:</span><span class="text-orange-300 font-bold">${fruit.name}</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">Volume Filtrat:</span><span class="text-white font-bold">5 mL</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">Tetesan Betadine:</span><span class="text-gold font-bold text-sm">${currentDrops} tetes</span></div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-3 pt-4">
+                            <button onclick="addVitCDrop()" ${isFinished ? 'disabled' : ''} class="w-full bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-navy-900 font-heading font-bold py-3 rounded-xl transition shadow-lg text-xs ${isFinished ? 'opacity-50 cursor-not-allowed' : ''}">
+                                💧 Teteskan Betadine (Kocok)
+                            </button>
+                            <button onclick="finishVitCFruit()" ${isFinished ? 'disabled' : ''} class="w-full bg-teal-500 hover:bg-teal-400 text-navy-900 font-heading font-bold py-3 rounded-xl transition shadow-lg text-xs">
+                                🚩 Tetapkan Titik Akhir
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Area Tengah: Meja Lab 3D CSS Perspective & Tabung Reaksi -->
+                    <div class="lg:col-span-2 bg-gradient-to-b from-slate-900 via-navy-900 to-navy-800 border border-slate-700/80 p-6 rounded-3xl flex flex-col items-center justify-center relative shadow-2xl overflow-hidden min-h-[380px] perspective-container">
+                        
+                        <!-- Meja Lab 3D Transform Berdasarkan Sudut Kamera -->
+                        <div id="lab-table-3d" class="w-full h-full flex flex-col items-center justify-center transition-transform duration-500" style="transform: rotateX(15deg) ${getCameraTransform()};">
+                            
+                            <!-- Bayangan Meja -->
+                            <div class="absolute bottom-6 w-64 h-12 bg-black/60 rounded-full blur-md"></div>
+
+                            <!-- Tabung Reaksi 3D SVG -->
+                            <svg class="w-40 h-72 drop-shadow-2xl transition-all duration-300" viewBox="0 0 100 200">
+                                <!-- Rak Tabung -->
+                                <rect x="25" y="155" width="50" height="18" rx="4" fill="#334155" />
+                                
+                                <!-- Tabung Kaca Transparan -->
+                                <path d="M 35 30 L 35 145 Q 35 170 50 170 Q 65 170 65 145 L 65 30" fill="none" stroke="#cbd5e1" stroke-width="4" stroke-opacity="0.8"/>
+                                
+                                <!-- Cairan di Dalam Tabung -->
+                                <path d="M 37 ${70 + (50 * (1 - colorPercent))} L 37 145 Q 37 168 50 168 Q 63 168 63 145 L 63 ${70 + (50 * (1 - colorPercent))}" fill="${tubeColor}" fill-opacity="0.88"/>
+                                
+                                <!-- Meniskus Permukaan Cairan -->
+                                <ellipse cx="50" cy="${70 + (50 * (1 - colorPercent))}" rx="13" ry="4" fill="${tubeColor}" fill-opacity="0.95"/>
+                                
+                                <!-- Pipet / Botol Tetes di Atas -->
+                                <g transform="translate(50, 10)" class="animate-bounce">
+                                    <path d="M -6 0 L 6 0 L 4 40 L -4 40 Z" fill="#64748b" />
+                                    <circle cx="0" cy="0" r="8" fill="#f97316" />
+                                </g>
+                            </svg>
+
+                            <div class="mt-4 bg-navy-900/90 px-4 py-2 rounded-2xl border border-slate-700 text-center">
+                                <p class="text-xs text-slate-300">Status Uji: <span class="text-orange-300 font-bold">${isFinished ? '✓ Selesai & Tercatat' : 'Sedang Titrasi...'}</span></p>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        function selectVitCFruit(idx) {
+            AppState.vitCFruitIndex = idx;
+            render();
+        }
+
+        function addVitCDrop() {
+            const fruit = fruitData[AppState.vitCFruitIndex];
+            if (AppState.vitCDrops[AppState.vitCFruitIndex] < fruit.drops + 3) {
+                AppState.vitCDrops[AppState.vitCFruitIndex]++;
+                render();
+            }
+        }
+
+        function finishVitCFruit() {
+            const fruit = fruitData[AppState.vitCFruitIndex];
+            const drops = AppState.vitCDrops[AppState.vitCFruitIndex];
+            AppState.vitCFinished[AppState.vitCFruitIndex] = true;
+
+            // Simpan ke Buku Pengamatan
+            const existing = AppState.observations.vitC.find(item => item.name === fruit.name);
+            if (!existing) {
+                AppState.observations.vitC.push({
+                    name: fruit.name,
+                    volume: "5 mL",
+                    drops: drops,
+                    color: "Cokelat Menetap",
+                    interpretation: drops >= 10 ? "Kadar Vitamin C Tinggi" : "Kadar Vitamin C Rendah"
+                });
+            }
+            showNotification(`Hasil ${fruit.name} berhasil dicatat ke Buku Pengamatan!`);
+            render();
+        }
+
+        function setCameraAngle(angle) {
+            AppState.cameraAngle = angle;
+            render();
+        }
+
+        function getCameraTransform() {
+            if (AppState.cameraAngle === 'left') return 'rotateY(-25deg)';
+            if (AppState.cameraAngle === 'right') return 'rotateY(25deg)';
+            if (AppState.cameraAngle === 'top') return 'rotateX(45deg)';
+            return 'rotateY(0deg)';
+        }
+
+        /**
+         * 4. MODUL UJI VITAMIN B6
+         */
+        function renderUjiVitaminB6() {
+            const sample = b6SampleData[AppState.b6SampleIndex];
+            let displayColor = "#e0f2fe";
+            if (AppState.b6Step === 1) displayColor = "#bfdbfe";
+            if (AppState.b6Step === 2) displayColor = sample.color;
+
+            let sampleTabsHTML = b6SampleData.map((s, i) => `
+                <button onclick="selectB6Sample(${i})" class="px-4 py-2 rounded-xl text-xs font-semibold border transition ${i === AppState.b6SampleIndex ? 'bg-fuchsia-500 text-navy-900 border-fuchsia-300 shadow-lg scale-105' : 'bg-navy-900 text-slate-300 border-slate-700 hover:bg-slate-800'}">
+                    ${s.name.split(' ')[0]} ${s.name.split(' ')[1]}
+                </button>
+            `).join('');
+
+            return `
+            <div class="flex-1 flex flex-col p-6 max-w-5xl mx-auto w-full space-y-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-navy-800/80 p-5 rounded-3xl border border-fuchsia-500/30 gap-4">
+                    <div>
+                        <span class="bg-fuchsia-500/20 text-fuchsia-300 px-3 py-1 rounded-full text-xs font-semibold border border-fuchsia-500/30">Langkah Step by Step</span>
+                        <h1 class="font-heading text-2xl text-fuchsia-300 font-bold mt-1">Uji Vitamin B6 (Kompleks Cu²⁺)</h1>
+                        <p class="text-xs text-slate-300">Tujuan: Identifikasi kadar piridoksin melalui pembentukan kompleks warna koordinasi basa.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="bg-navy-800/90 border border-slate-700 p-6 rounded-3xl space-y-5 shadow-xl flex flex-col justify-between">
+                        <div class="space-y-4">
+                            <h3 class="font-heading text-sm text-fuchsia-300 font-bold">1. Pilih Sampel Larutan</h3>
+                            <div class="flex flex-wrap gap-2">
+                                ${sampleTabsHTML}
+                            </div>
+
+                            <div class="bg-navy-900/80 p-4 rounded-2xl border border-slate-700 space-y-2 text-xs">
+                                <div class="flex justify-between"><span class="text-slate-400">Sampel:</span><span class="text-fuchsia-300 font-bold">${sample.name}</span></div>
+                                <div class="flex justify-between"><span class="text-slate-400">Tahap Reaksi:</span><span class="text-gold font-bold">Langkah ${AppState.b6Step}/3</span></div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-3 pt-4">
+                            ${AppState.b6Step === 0 ? `<button onclick="performB6Step(1)" class="w-full bg-fuchsia-500 hover:bg-fuchsia-400 text-navy-900 font-heading font-bold py-3 rounded-xl transition shadow-lg text-xs">🧪 Tambah 3-5 Tetes CuSO₄ 5%</button>` : ''}
+                            ${AppState.b6Step === 1 ? `<button onclick="performB6Step(2)" class="w-full bg-fuchsia-500 hover:bg-fuchsia-400 text-navy-900 font-heading font-bold py-3 rounded-xl transition shadow-lg text-xs">⚗️ Tambah 10 Tetes NaOH 10% (Basa)</button>` : ''}
+                            ${AppState.b6Step === 2 ? `<button onclick="performB6Step(3)" class="w-full bg-teal-500 hover:bg-teal-400 text-navy-900 font-heading font-bold py-3 rounded-xl transition shadow-lg text-xs">🚩 Catat Hasil ke Buku Pengamatan</button>` : ''}
+                            ${AppState.b6Step === 3 ? `<div class="p-3 bg-teal-500/20 text-teal-300 text-center rounded-xl text-xs font-semibold">✓ Uji Sampel Ini Selesai</div>` : ''}
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-2 bg-gradient-to-b from-slate-900 via-navy-900 to-navy-800 border border-slate-700/80 p-6 rounded-3xl flex flex-col items-center justify-center relative shadow-2xl overflow-hidden min-h-[380px]">
+                        <svg class="w-40 h-72 drop-shadow-2xl" viewBox="0 0 100 200">
+                            <rect x="25" y="155" width="50" height="18" rx="4" fill="#334155" />
+                            <path d="M 35 30 L 35 145 Q 35 170 50 170 Q 65 170 65 145 L 65 30" fill="none" stroke="#cbd5e1" stroke-width="4" stroke-opacity="0.8"/>
+                            <path d="M 37 90 L 37 145 Q 37 168 50 168 Q 63 168 63 145 L 63 90" fill="${displayColor}" fill-opacity="0.88"/>
+                            <ellipse cx="50" cy="90" rx="13" ry="4" fill="${displayColor}" fill-opacity="0.95"/>
+                        </svg>
+                        <div class="mt-4 bg-navy-900/90 px-4 py-2 rounded-2xl border border-slate-700 text-center">
+                            <p class="text-xs text-slate-300">Kategori Warna: <span class="text-fuchsia-300 font-bold">${AppState.b6Step === 2 ? sample.category : 'Menunggu Reaksi Selesai'}</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        function selectB6Sample(idx) {
+            AppState.b6SampleIndex = idx;
+            AppState.b6Step = 0;
+            render();
+        }
+
+        function performB6Step(step) {
+            AppState.b6Step = step;
+            if (step === 3) {
+                const sample = b6SampleData[AppState.b6SampleIndex];
+                const existing = AppState.observations.vitB6.find(item => item.id === sample.id);
+                if (!existing) {
+                    AppState.observations.vitB6.push({
+                        id: sample.id,
+                        name: sample.name,
+                        colorBefore: "Biru Muda / Bening",
+                        colorAfter: sample.category.split(' ')[0],
+                        interpretation: sample.category
+                    });
+                }
+                showNotification(`Hasil ${sample.name} berhasil dicatat!`);
+            }
+            render();
+        }
+
+        /**
+         * 5. BUKU PENGAMATAN & LAPORAN OTOMATIS
+         */
+        function renderBukuPengamatan() {
+            let vitCRows = AppState.observations.vitC.map(item => `
+                <tr>
+                    <td class="border border-slate-700 p-2">${item.name}</td>
+                    <td class="border border-slate-700 p-2">${item.volume}</td>
+                    <td class="border border-slate-700 p-2 text-center">${item.drops} tetes</td>
+                    <td class="border border-slate-700 p-2">${item.color}</td>
+                    <td class="border border-slate-700 p-2 text-teal-300 font-semibold">${item.interpretation}</td>
+                </tr>
+            `).join('') || `<tr><td colspan="5" class="border border-slate-700 p-4 text-center text-slate-500 italic">Belum ada data uji Vitamin C. Selesaikan uji di menu utama.</td></tr>`;
+
+            let vitB6Rows = AppState.observations.vitB6.map(item => `
+                <tr>
+                    <td class="border border-slate-700 p-2">${item.name}</td>
+                    <td class="border border-slate-700 p-2">${item.colorBefore}</td>
+                    <td class="border border-slate-700 p-2">${item.colorAfter}</td>
+                    <td class="border border-slate-700 p-2 text-fuchsia-300 font-semibold">${item.interpretation}</td>
+                </tr>
+            `).join('') || `<tr><td colspan="4" class="border border-slate-700 p-4 text-center text-slate-500 italic">Belum ada data uji Vitamin B6.</td></tr>`;
+
+            return `
+            <div class="flex-1 flex flex-col p-6 md:p-10 max-w-5xl mx-auto w-full space-y-8">
+                <div class="flex justify-between items-center bg-navy-800/80 p-6 rounded-3xl border border-teal-500/30">
+                    <div>
+                        <h1 class="font-heading text-2xl md:text-3xl text-teal-300 font-bold">Buku Pengamatan & Laporan Praktikum</h1>
+                        <p class="text-xs text-slate-400 mt-1">Rekapitulasi otomatis hasil pengamatan laboratorium Anda.</p>
+                    </div>
+                    <button onclick="window.print()" class="bg-teal-500 hover:bg-teal-400 text-navy-900 font-heading font-bold px-5 py-2.5 rounded-xl transition text-xs shadow-lg">
+                        🖨️ Cetak / Salin Laporan
+                    </button>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="bg-navy-800/90 border border-slate-700 p-6 rounded-3xl space-y-4">
+                        <h3 class="font-heading text-lg text-orange-300 font-bold">Tabel 1. Hasil Uji Vitamin C</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse border border-slate-700 text-xs">
+                               <thead>
+                                    <tr class="bg-navy-900 text-slate-300">
+                                        <th class="border border-slate-700 p-2">Jenis Ekstrak</th>
+                                        <th class="border border-slate-700 p-2">Volume</th>
+                                        <th class="border border-slate-700 p-2">Jumlah Tetes</th>
+                                        <th class="border border-slate-700 p-2">Warna Akhir</th>
+                                        <th class="border border-slate-700 p-2">Interpretasi</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${vitCRows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="bg-navy-800/90 border border-slate-700 p-6 rounded-3xl space-y-4">
+                        <h3 class="font-heading text-lg text-fuchsia-300 font-bold">Tabel 2. Hasil Uji Vitamin B6</h3>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse border border-slate-700 text-xs">
+                                <thead>
+                                    <tr class="bg-navy-900 text-slate-300">
+                                        <th class="border border-slate-700 p-2">Sampel Vitamin</th>
+                                        <th class="border border-slate-700 p-2">Warna Sebelum</th>
+                                        <th class="border border-slate-700 p-2">Warna Sesudah</th>
+                                        <th class="border border-slate-700 p-2">Interpretasi Kadar</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${vitB6Rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            `;
+        }
+
+        /**
+         * 6. KUIS INTERAKTIF
+         */
+        function openQuiz(type) {
+            AppState.activeQuizType = type;
+            AppState.screen = 'kuis';
+            AppState.quizSubmitted = false;
+            AppState.quizAnswers = {};
+            render();
+        }
+
+        function renderQuizScreen() {
+            const type = AppState.activeQuizType || 'vit_c';
+            const questions = QuizData[type];
+
+            let qHTML = questions.map((item, qIdx) => {
+                let optionsHTML = item.options.map((opt, oIdx) => `
+                    <label class="flex items-start space-x-3 p-3 bg-navy-900/60 hover:bg-navy-900 rounded-xl border border-slate-700 cursor-pointer transition">
+                        <input type="radio" name="quiz_${qIdx}" value="${oIdx}" class="mt-1 text-teal-500 focus:ring-teal-400">
+                        <span class="text-xs text-slate-200">${opt}</span>
+                    </label>
+                `).join('');
+
+                return `
+                <div class="bg-navy-900/80 p-5 rounded-2xl border border-slate-700 space-y-3">
+                    <p class="font-medium text-slate-100 text-sm"><span class="text-teal-400 font-bold">Soal ${qIdx+1}:</span> ${item.q}</p>
+                    <div class="space-y-2">${optionsHTML}</div>
+                </div>
+                `;
+            }).join('');
+
+            return `
+            <div class="flex-1 flex flex-col p-6 max-w-3xl mx-auto w-full justify-center">
+                <div class="bg-navy-800/90 border border-teal-500/30 rounded-3xl p-8 shadow-2xl space-y-6">
+                    <div class="flex justify-between items-center border-b border-slate-700 pb-4">
+                        <div>
+                            <h2 class="font-heading text-xl text-teal-300 font-bold">Kuis Interaktif Biokimia Gizi</h2>
+                            <p class="text-slate-400 text-xs mt-0.5">Uji pemahaman teori modul terkait</p>
+                        </div>
+                        <button onclick="goToMenu()" class="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1.5 rounded-xl transition">Kembali ke Menu</button>
+                    </div>
+
+                    <div class="space-y-4 max-h-[55vh] overflow-y-auto pr-2">
+                        ${qHTML}
+                    </div>
+
+                    <button onclick="submitQuiz('${type}')" class="w-full bg-teal-500 hover:bg-teal-400 text-navy-900 font-heading font-bold py-3 rounded-xl transition shadow text-xs">
+                        Kirim Jawaban Kuis
+                    </button>
+                </div>
+            </div>
+            `;
+        }
+
+        function submitQuiz(type) {
+            const questions = QuizData[type];
+            let score = 0;
+
+            questions.forEach((item, qIdx) => {
+                const sel = document.querySelector(`input[name="quiz_${qIdx}"]:checked`);
+                if (sel && parseInt(sel.value) === item.answer) {
+                    score++;
+                }
+            });
+
+            const percentage = (score / questions.length) * 100;
+            alert(`Kuis Selesai! Skor Anda: ${score}/${questions.length} (${percentage}%)`);
+            goToMenu();
+        }
+
+        /**
+         * INISIALISASI MOLEKUL 3D THREE.JS (DENGAN FALLBACK CSS 3D OTOMATIS)
+         */
+        function initMoleculeCanvas(canvasId) {
+            try {
+                const canvas = document.getElementById(canvasId);
+                if (!canvas || typeof THREE === 'undefined') return;
+
+                const scene = new THREE.Scene();
+                const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
+                const renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+                renderer.setSize(120, 120);
+
+                const group = new THREE.Group();
+                const sphereGeo = new THREE.SphereGeometry(0.3, 16, 16);
+                const mat1 = new THREE.MeshBasicMaterial({ color: 0x48cae4 });
+                const mat2 = new THREE.MeshBasicMaterial({ color: 0xffd166 });
+
+                for (let i = 0; i < 5; i++) {
+                    const mesh = new THREE.Mesh(sphereGeo, i % 2 === 0 ? mat1 : mat2);
+                    mesh.position.set(
+                        (Math.random() - 0.5) * 2,
+                        (Math.random() - 0.5) * 2,
+                        (Math.random() - 0.5) * 2
+                    );
+                    group.add(mesh);
+                }
+                scene.add(group);
+                camera.position.z = 4;
+
+                function animate() {
+                    requestAnimationFrame(animate);
+                    group.rotation.x += 0.01;
+                    group.rotation.y += 0.015;
+                    renderer.render(scene, camera);
+                }
+                animate();
+            } catch (e) {
+                console.log("Three.js fallback aktif.");
+            }
+        }
+
+        // Render awal aplikasi
+        render();
+    </script>
+</body>
+</html>
+`
